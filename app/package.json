@@ -1,24 +1,37 @@
 {
-  "name": "app",
+  "name": "judebox",
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "eas:dev:android": "eas build --profile development --platform android",
+    "eas:dev:ios": "eas build --profile development --platform ios",
+    "eas:android": "eas build --platform android",
+    "eas:ios": "eas build --platform ios",
+    "eas:update": "eas update"
   },
   "dependencies": {
+    "@react-native-picker/picker": "2.11.1",
     "expo": "~54.0.33",
     "expo-av": "^16.0.8",
-    "expo-document-picker": "~55.0.8",
-    "expo-status-bar": "~55.0.4",
-    "react": "19.2.0",
-    "react-native": "0.83.2",
+    "expo-dev-client": "~6.0.20",
+    "expo-document-picker": "~14.0.8",
+    "expo-file-system": "~19.0.21",
+    "expo-media-library": "~18.2.1",
+    "expo-status-bar": "~3.0.9",
+    "lucide-react-native": "^0.576.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-svg": "15.12.1",
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "eas-cli": "^18.1.0",
     "typescript": "~5.9.2"
   },
   "private": true
