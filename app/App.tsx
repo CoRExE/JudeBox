@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, TextInput, Alert, Platform, ActivityIndicator, KeyboardAvoidingView, ScrollView, Image, Animated, Dimensions, Easing } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, TextInput, Alert, Platform, ActivityIndicator, KeyboardAvoidingView, ScrollView, Image, Animated, Dimensions, Easing, Modal, FlatList } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import * as DocumentPicker from 'expo-document-picker';
 import { io, Socket } from 'socket.io-client';
-import { Play, Pause, Upload, Headphones, LogOut, Radio, Music, RadioTower, ListMusic, Repeat, Repeat1, X } from 'lucide-react-native';
+import { Play, Pause, Upload, Headphones, LogOut, Radio, Music, RadioTower, ListMusic, Repeat, Repeat1, X, SkipBack, SkipForward, FolderHeart, Library } from 'lucide-react-native';
 import { LocalAudioList } from './src/components/LocalAudioList';
+import { usePlaylists, Playlist, PlaylistTrack } from './src/hooks/usePlaylists';
+import { PlaylistsView } from './src/components/PlaylistsView';
+import { Toast } from './src/components/Toast';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -42,6 +45,21 @@ export default function App() {
   const [showLocalLibrary, setShowLocalLibrary] = useState(false);
   const [isAutoPlay, setIsAutoPlay] = useState(false);
   const [allLocalTracks, setAllLocalTracks] = useState<{ uri: string, filename: string }[]>([]);
+
+  // Playlist State
+  const { playlists, createPlaylist, addTrackToPlaylist, removeTrackFromPlaylist, deletePlaylist } = usePlaylists();
+  const [activeTab, setActiveTab] = useState<'library' | 'playlists'>('library');
+  const [currentPlaybackContext, setCurrentPlaybackContext] = useState<{ type: 'library' } | { type: 'playlist', id: string }>({ type: 'library' });
+  const [isPlaylistModalVisible, setPlaylistModalVisible] = useState(false);
+  const [trackToAdd, setTrackToAdd] = useState<PlaylistTrack | null>(null);
+
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  };
 
   const isUpdatingFromSocket = useRef(false);
   const currentIsPlayingRef = useRef(false);
@@ -94,10 +112,37 @@ export default function App() {
   };
 
   const getNextTrackInfo = () => {
-    if (!currentFileURI || allLocalTracks.length === 0) return null;
-    const currentIndex = allLocalTracks.findIndex(t => t.filename === currentFileURI);
-    if (currentIndex !== -1 && currentIndex + 1 < allLocalTracks.length) {
-      return allLocalTracks[currentIndex + 1];
+    if (!currentFileURI) return null;
+
+    let trackList = allLocalTracks;
+    if (currentPlaybackContext.type === 'playlist') {
+      const playlist = playlists.find(p => p.id === currentPlaybackContext.id);
+      if (playlist) trackList = playlist.tracks;
+    }
+
+    if (trackList.length === 0) return null;
+
+    const currentIndex = trackList.findIndex(t => t.filename === currentFileURI);
+    if (currentIndex !== -1 && currentIndex + 1 < trackList.length) {
+      return trackList[currentIndex + 1];
+    }
+    return null;
+  };
+
+  const getPreviousTrackInfo = () => {
+    if (!currentFileURI) return null;
+
+    let trackList = allLocalTracks;
+    if (currentPlaybackContext.type === 'playlist') {
+      const playlist = playlists.find(p => p.id === currentPlaybackContext.id);
+      if (playlist) trackList = playlist.tracks;
+    }
+
+    if (trackList.length === 0) return null;
+
+    const currentIndex = trackList.findIndex(t => t.filename === currentFileURI);
+    if (currentIndex > 0) {
+      return trackList[currentIndex - 1];
     }
     return null;
   };
@@ -108,6 +153,15 @@ export default function App() {
       hasTriggeredNextTrackRef.current = true;
       setProgress(0); // Reset progress immediately
       await handleAudioSelection(next.uri, next.filename, 'audio/mpeg', true);
+    }
+  };
+
+  const playPreviousTrack = async () => {
+    const prev = getPreviousTrackInfo();
+    if (prev) {
+      hasTriggeredNextTrackRef.current = true;
+      setProgress(0);
+      await handleAudioSelection(prev.uri, prev.filename, 'audio/mpeg', true);
     }
   };
 
@@ -211,9 +265,19 @@ export default function App() {
   };
 
   // Actions Audio
-  const handleAudioSelection = async (uri: string, filename: string, mimeType: string = 'audio/mpeg', autoPlayOnLoad: boolean = false) => {
+  const handleAudioSelection = async (
+    uri: string,
+    filename: string,
+    mimeType: string = 'audio/mpeg',
+    autoPlayOnLoad: boolean = false,
+    context?: { type: 'library' } | { type: 'playlist', id: string }
+  ) => {
     try {
       setCurrentFileURI(filename);
+      if (context) {
+        setCurrentPlaybackContext(context);
+      }
+
       setIsUploading(true);
       setShowLocalLibrary(false);
 
@@ -382,6 +446,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
+        <Toast visible={toastVisible} message={toastMessage} onHide={() => setToastVisible(false)} type="success" />
         <View style={styles.header}>
           <View>
             <Text style={styles.headerTitle}>Salon {roomId}</Text>
@@ -431,18 +496,30 @@ export default function App() {
 
               <View style={styles.hostControls}>
                 <TouchableOpacity style={styles.actionBtn} onPress={toggleLibraryPanel} disabled={isUploading}>
-                  <ListMusic size={24} color={COLORS.text} />
+                  {(currentPlaybackContext.type === 'playlist') ?
+                    <FolderHeart size={24} color={COLORS.accent} /> :
+                    <ListMusic size={24} color={COLORS.text} />}
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.playBtn, !sound && styles.btnDisabled]}
-                  onPress={togglePlayHost}
-                  disabled={!sound}>
-                  {isPlaying ? <Pause size={32} color="#fff" /> : <Play size={32} color="#fff" style={{ marginLeft: 4 }} />}
-                </TouchableOpacity>
+                <View style={styles.playbackControls}>
+                  <TouchableOpacity style={styles.secondaryActionBtn} onPress={playPreviousTrack} disabled={!sound}>
+                    <SkipBack size={28} color={sound ? COLORS.text : COLORS.textMuted} fill={sound ? COLORS.text : COLORS.textMuted} />
+                  </TouchableOpacity>
 
-                <TouchableOpacity style={styles.actionBtn} onPress={() => setIsAutoPlay(!isAutoPlay)}>
-                  {isAutoPlay ? <Repeat size={24} color={COLORS.accent} /> : <Repeat1 size={24} color={COLORS.textMuted} />}
+                  <TouchableOpacity
+                    style={[styles.playBtn, !sound && styles.btnDisabled]}
+                    onPress={togglePlayHost}
+                    disabled={!sound}>
+                    {isPlaying ? <Pause size={32} color="#fff" /> : <Play size={32} color="#fff" style={{ marginLeft: 4 }} />}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.secondaryActionBtn} onPress={playNextTrack} disabled={!sound || !getNextTrackInfo()}>
+                    <SkipForward size={28} color={sound && getNextTrackInfo() ? COLORS.text : COLORS.textMuted} fill={sound && getNextTrackInfo() ? COLORS.text : COLORS.textMuted} />
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity style={[styles.actionBtn, isAutoPlay && styles.activeActionBtn]} onPress={() => setIsAutoPlay(!isAutoPlay)}>
+                  {isAutoPlay ? <Repeat size={24} color={COLORS.bg} /> : <Repeat1 size={24} color={COLORS.textMuted} />}
                 </TouchableOpacity>
               </View>
             </View>
@@ -452,15 +529,58 @@ export default function App() {
           {role === 'host' && (
             <Animated.View style={[styles.sidePanel, { transform: [{ translateX: slideAnim }] }]}>
               <View style={styles.sidePanelHeader}>
-                <Text style={styles.sidePanelTitle}>Bibliothèque</Text>
+                <View style={styles.tabContainer}>
+                  <TouchableOpacity
+                    style={[styles.tabBtn, activeTab === 'library' && styles.activeTabBtn]}
+                    onPress={() => setActiveTab('library')}
+                  >
+                    <Library size={18} color={activeTab === 'library' ? COLORS.text : COLORS.textMuted} />
+                    <Text style={[styles.tabText, activeTab === 'library' && styles.activeTabText]}>Bibliothèque</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.tabBtn, activeTab === 'playlists' && styles.activeTabBtn]}
+                    onPress={() => setActiveTab('playlists')}
+                  >
+                    <FolderHeart size={18} color={activeTab === 'playlists' ? COLORS.text : COLORS.textMuted} />
+                    <Text style={[styles.tabText, activeTab === 'playlists' && styles.activeTabText]}>Playlists</Text>
+                  </TouchableOpacity>
+                </View>
+
                 <TouchableOpacity onPress={toggleLibraryPanel} style={styles.closePanelBtn}>
                   <X size={24} color={COLORS.text} />
                 </TouchableOpacity>
               </View>
-              <LocalAudioList
-                onSelectTrack={(uri, filename) => handleAudioSelection(uri, filename)}
-                onTracksLoaded={(tracks) => setAllLocalTracks(tracks)}
-              />
+
+              {activeTab === 'library' ? (
+                <LocalAudioList
+                  onSelectTrack={(uri, filename) => handleAudioSelection(uri, filename, 'audio/mpeg', false, { type: 'library' })}
+                  onTracksLoaded={(tracks) => setAllLocalTracks(tracks)}
+                  onAddToPlaylist={(uri, filename) => {
+                    setTrackToAdd({ uri, filename });
+                    setPlaylistModalVisible(true);
+                  }}
+                />
+              ) : (
+                <PlaylistsView
+                  playlists={playlists}
+                  onCreatePlaylist={createPlaylist}
+                  onDeletePlaylist={deletePlaylist}
+                  onRemoveTrack={removeTrackFromPlaylist}
+                  onPlayTrack={(track, playlistId) => handleAudioSelection(track.uri, track.filename, 'audio/mpeg', false, { type: 'playlist', id: playlistId })}
+                  onPlayPlaylist={(playlistId) => {
+                    const playlist = playlists.find(p => p.id === playlistId);
+                    if (playlist && playlist.tracks.length > 0) {
+                      handleAudioSelection(
+                        playlist.tracks[0].uri,
+                        playlist.tracks[0].filename,
+                        'audio/mpeg',
+                        true,
+                        { type: 'playlist', id: playlistId }
+                      );
+                    }
+                  }}
+                />
+              )}
             </Animated.View>
           )}
 
@@ -497,6 +617,47 @@ export default function App() {
               )}
             </View>
           )}
+
+          {/* Modal Add to Playlist */}
+          <Modal visible={isPlaylistModalVisible} transparent animationType="fade">
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Ajouter à la playlist</Text>
+                  <TouchableOpacity onPress={() => setPlaylistModalVisible(false)}>
+                    <X size={24} color={COLORS.text} />
+                  </TouchableOpacity>
+                </View>
+
+                {playlists.length === 0 ? (
+                  <View style={styles.modalEmpty}>
+                    <Text style={styles.modalEmptyText}>Aucune playlist disponible.</Text>
+                    <Text style={styles.modalEmptySubText}>Créez-en une depuis l'onglet Playlists.</Text>
+                  </View>
+                ) : (
+                  <FlatList
+                    data={playlists}
+                    keyExtractor={item => item.id}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={styles.modalPlaylistBtn}
+                        onPress={() => {
+                          if (trackToAdd) {
+                            addTrackToPlaylist(item.id, trackToAdd);
+                            setPlaylistModalVisible(false);
+                            showToast(`Ajouté à "${item.name}"`);
+                          }
+                        }}
+                      >
+                        <FolderHeart size={20} color={COLORS.accent} />
+                        <Text style={styles.modalPlaylistText}>{item.name}</Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                )}
+              </View>
+            </View>
+          </Modal>
 
         </View>
       </SafeAreaView>
@@ -744,6 +905,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
   },
+  playbackControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
   actionBtn: {
     width: 50,
     height: 50,
@@ -751,6 +917,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  activeActionBtn: {
+    backgroundColor: COLORS.text,
+  },
+  secondaryActionBtn: {
+    padding: 8,
   },
   playBtn: {
     width: 80,
@@ -810,16 +982,90 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 20,
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  sidePanelTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+  tabContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 16,
+  },
+  tabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  activeTabBtn: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  tabText: {
+    color: COLORS.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  activeTabText: {
     color: COLORS.text,
   },
   closePanelBtn: {
-    padding: 4,
-  }
+    padding: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: COLORS.card,
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  modalPlaylistBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+    gap: 12,
+  },
+  modalPlaylistText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  modalEmpty: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  modalEmptyText: {
+    color: COLORS.textMuted,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  modalEmptySubText: {
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: 8,
+    textAlign: 'center',
+  },
 });

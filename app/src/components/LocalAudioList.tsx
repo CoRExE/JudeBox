@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
-import { Music, AlertCircle } from 'lucide-react-native';
+import { Music, AlertCircle, Plus } from 'lucide-react-native';
 
 const COLORS = {
   bg: '#0F172A',         // Slate 900
@@ -15,9 +15,10 @@ const COLORS = {
 interface LocalAudioListProps {
   onSelectTrack: (fileUri: string, filename: string) => void;
   onTracksLoaded?: (tracks: { uri: string, filename: string }[]) => void;
+  onAddToPlaylist?: (fileUri: string, filename: string) => void;
 }
 
-export const LocalAudioList: React.FC<LocalAudioListProps> = ({ onSelectTrack, onTracksLoaded }) => {
+export const LocalAudioList: React.FC<LocalAudioListProps> = ({ onSelectTrack, onTracksLoaded, onAddToPlaylist }) => {
   const [audioFiles, setAudioFiles] = useState<MediaLibrary.Asset[]>([]);
   const [permissionResponse, requestPermission] = MediaLibrary.usePermissions();
   const [loading, setLoading] = useState(true);
@@ -82,20 +83,30 @@ export const LocalAudioList: React.FC<LocalAudioListProps> = ({ onSelectTrack, o
   };
 
   const renderItem = ({ item }: { item: MediaLibrary.Asset }) => (
-    <TouchableOpacity
-      style={styles.trackItem}
-      onPress={() => onSelectTrack(item.uri, item.filename)}
-    >
-      <View style={styles.iconContainer}>
-        <Music size={24} color={COLORS.accent} />
-      </View>
-      <View style={styles.trackInfo}>
-        <Text style={styles.trackName} numberOfLines={1}>{item.filename}</Text>
-        <Text style={styles.trackDetails}>
-          {item.duration > 0 ? `${Math.floor(item.duration / 60)}:${Math.floor(item.duration % 60).toString().padStart(2, '0')}` : 'Durée inconnue'}
-        </Text>
-      </View>
-    </TouchableOpacity>
+    <View style={styles.trackItem}>
+      <TouchableOpacity
+        style={styles.trackContent}
+        onPress={() => onSelectTrack(item.uri, item.filename)}
+      >
+        <View style={styles.iconContainer}>
+          <Music size={24} color={COLORS.accent} />
+        </View>
+        <View style={styles.trackInfo}>
+          <Text style={styles.trackName} numberOfLines={1}>{item.filename}</Text>
+          <Text style={styles.trackDetails}>
+            {item.duration > 0 ? `${Math.floor(item.duration / 60)}:${Math.floor(item.duration % 60).toString().padStart(2, '0')}` : 'Durée inconnue'}
+          </Text>
+        </View>
+      </TouchableOpacity>
+      {onAddToPlaylist && (
+        <TouchableOpacity
+          style={styles.addToPlaylistBtn}
+          onPress={() => onAddToPlaylist(item.uri, item.filename)}
+        >
+          <Plus size={24} color={COLORS.textMuted} />
+        </TouchableOpacity>
+      )}
+    </View>
   );
 
   if (loading) {
@@ -229,6 +240,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 16,
   },
+  trackContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   trackInfo: {
     flex: 1,
   },
@@ -241,5 +257,9 @@ const styles = StyleSheet.create({
   trackDetails: {
     color: COLORS.textMuted,
     fontSize: 12,
+  },
+  addToPlaylistBtn: {
+    padding: 8,
+    marginLeft: 8,
   },
 });
