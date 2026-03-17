@@ -12,9 +12,9 @@ import { Toast } from './src/components/Toast';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const SERVER_URL = 'http://192.168.1.20:3000';
+const SERVER_URL = 'http://192.168.1.100:3000';
 
-type Role = 'host' | 'listener' | null;
+type Role = 'host' | 'listener' | 'offline' | null;
 
 // Thème des couleurs
 const COLORS = {
@@ -264,6 +264,11 @@ export default function App() {
     });
   };
 
+  const startOfflineMode = () => {
+    setRole('offline');
+    setRoomId(''); // No room mapped
+  };
+
   // Actions Audio
   const handleAudioSelection = async (
     uri: string,
@@ -281,32 +286,48 @@ export default function App() {
       setIsUploading(true);
       setShowLocalLibrary(false);
 
-      const formData = new FormData();
-      formData.append('audio', {
-        uri: uri,
-        name: filename,
-        type: mimeType,
-      } as any);
+      let audioStreamUri = '';
+      let coverData: { title?: string, artist?: string, coverBase64?: string } | null = null;
 
-      const uploadRes = await fetch(`${SERVER_URL}/room/${roomId}/upload`, {
-        method: 'POST',
-        body: formData,
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      if (role === 'offline') {
+        // Mode Hors Ligne: on lit le fichier local directement
+        audioStreamUri = uri;
+          
+        // Note: For now, in offline mode without a local ID3 parser library, 
+        // we won't have the cover extraction unless added later. 
+        // We set basic info.
+        coverData = { title: filename.replace('.mp3', ''), artist: 'Artiste Inconnu' };
+        setTrackMetadata(coverData);
+      } else {
+        // Mode Hôte Online: upload vers le serveur
+        const formData = new FormData();
+        formData.append('audio', {
+          uri: uri,
+          name: filename,
+          type: mimeType,
+        } as any);
 
-      if (!uploadRes.ok) {
-        setIsUploading(false);
-        Alert.alert('Erreur', "Échec de l'upload du fichier.");
-        return;
+        const uploadRes = await fetch(`${SERVER_URL}/room/${roomId}/upload`, {
+          method: 'POST',
+          body: formData,
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+
+        if (!uploadRes.ok) {
+          setIsUploading(false);
+          Alert.alert('Erreur', "Échec de l'upload du fichier.");
+          return;
+        }
+
+        const resData = await uploadRes.json();
+        coverData = resData.metadata || null;
+        setTrackMetadata(coverData);
+        audioStreamUri = SERVER_URL + resData.streamUrl;
       }
-
-      const resData = await uploadRes.json();
-
-      setTrackMetadata(resData.metadata || null);
 
       if (sound) await sound.unloadAsync();
       const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: SERVER_URL + resData.streamUrl },
+        { uri: audioStreamUri },
         { shouldPlay: false }
       );
 
@@ -320,10 +341,12 @@ export default function App() {
         if (status.isPlaying !== currentIsPlayingRef.current) {
           currentIsPlayingRef.current = status.isPlaying;
           setIsPlaying(status.isPlaying);
-          socket?.emit('updateState', roomId, {
-            isPlaying: status.isPlaying,
-            positionMillis: status.positionMillis
-          });
+          if (role !== 'offline') {
+            socket?.emit('updateState', roomId, {
+              isPlaying: status.isPlaying,
+              positionMillis: status.positionMillis
+            });
+          }
         }
       });
 
@@ -333,7 +356,10 @@ export default function App() {
         await newSound.playAsync();
         setIsPlaying(true);
         currentIsPlayingRef.current = true;
-        socket?.emit('updateState', roomId, { isPlaying: true, positionMillis: 0 });
+        
+        if (role !== 'offline') {
+            socket?.emit('updateState', roomId, { isPlaying: true, positionMillis: 0 });
+        }
       }
 
       setIsUploading(false);
@@ -369,12 +395,16 @@ export default function App() {
       await sound.pauseAsync();
       setIsPlaying(false);
       currentIsPlayingRef.current = false;
-      socket?.emit('updateState', roomId, { isPlaying: false, positionMillis: status.positionMillis });
+      if (role !== 'offline') {
+        socket?.emit('updateState', roomId, { isPlaying: false, positionMillis: status.positionMillis });
+      }
     } else {
       await sound.playAsync();
       setIsPlaying(true);
       currentIsPlayingRef.current = true;
-      socket?.emit('updateState', roomId, { isPlaying: true, positionMillis: status.positionMillis });
+      if (role !== 'offline') {
+        socket?.emit('updateState', roomId, { isPlaying: true, positionMillis: status.positionMillis });
+      }
     }
   };
 
@@ -436,6 +466,17 @@ export default function App() {
                 <Radio size={20} color={COLORS.text} />
                 <Text style={styles.btnSecondaryText}>Créer un salon (Hôte)</Text>
               </TouchableOpacity>
+              
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>HORS LIGNE</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <TouchableOpacity style={styles.btnSecondary} onPress={startOfflineMode}>
+                <Music size={20} color={COLORS.text} />
+                <Text style={styles.btnSecondaryText}>Écouter ma musique (Solo)</Text>
+              </TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -449,8 +490,10 @@ export default function App() {
         <Toast visible={toastVisible} message={toastMessage} onHide={() => setToastVisible(false)} type="success" />
         <View style={styles.header}>
           <View>
-            <Text style={styles.headerTitle}>Salon {roomId}</Text>
-            <Text style={styles.headerRole}>{role === 'host' ? '👑 Vous êtes l\'Hôte' : '🎧 Vous êtes Auditeur'}</Text>
+            <Text style={styles.headerTitle}>{role === 'offline' ? 'Mode Hors Ligne' : `Salon ${roomId}`}</Text>
+            <Text style={styles.headerRole}>
+              {role === 'offline' ? '🎧 Écoute Locale' : (role === 'host' ? '👑 Vous êtes l\'Hôte' : '🎧 Vous êtes Auditeur')}
+            </Text>
           </View>
           <TouchableOpacity style={styles.leaveBtn} onPress={leaveRoom}>
             <LogOut size={20} color={COLORS.danger} />
@@ -458,7 +501,7 @@ export default function App() {
         </View>
 
         <View style={styles.roomContent}>
-          {role === 'host' && (
+          {(role === 'host' || role === 'offline') && (
             <View style={styles.playerCard}>
               <View style={styles.vinylContainer}>
                 <Animated.View style={[styles.vinyl, isPlaying && styles.vinylSpinning, { transform: [{ rotate: spinInterpolate }] }]}>
@@ -479,7 +522,7 @@ export default function App() {
                   : (trackMetadata?.title || currentFileURI || "Aucun fichier sélectionné")}
               </Text>
 
-              {isAutoPlay && role === 'host' && getNextTrackInfo() && (
+              {isAutoPlay && getNextTrackInfo() && (
                 <View style={styles.nextTrackInfo}>
                   <Text style={styles.nextTrackLabel}>À suivre :</Text>
                   <Text style={styles.nextTrackText} numberOfLines={1}>
@@ -526,7 +569,7 @@ export default function App() {
           )}
 
           {/* Animated Library Side Panel over content */}
-          {role === 'host' && (
+          {(role === 'host' || role === 'offline') && (
             <Animated.View style={[styles.sidePanel, { transform: [{ translateX: slideAnim }] }]}>
               <View style={styles.sidePanelHeader}>
                 <View style={styles.tabContainer}>
