@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, TextInput, Alert, Platform, ActivityIndicator, KeyboardAvoidingView, ScrollView, Image, Animated, Dimensions, Easing, Modal, FlatList } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
-import { useAudioPlayer } from 'expo-audio';
+import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import { io, Socket } from 'socket.io-client';
 import { Play, Pause, Upload, Headphones, LogOut, Radio, Music, RadioTower, ListMusic, Repeat, Repeat1, X, SkipBack, SkipForward, FolderHeart, Library } from 'lucide-react-native';
@@ -38,6 +38,22 @@ export default function App() {
 
   const player = useAudioPlayer(); // expo-audio hook
   
+  // Initialize background audio mode
+  useEffect(() => {
+    const setupAudio = async () => {
+      try {
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          shouldPlayInBackground: true,
+          interruptionMode: 'doNotMix',
+        });
+      } catch (e) {
+        console.warn('Failed to set audio mode:', e);
+      }
+    };
+    setupAudio();
+  }, []);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentFileURI, setCurrentFileURI] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -268,6 +284,10 @@ export default function App() {
       
       // Load the new stream URL into the player
       player.replace({ uri: `${SERVER_URL}${streamPath}?t=${timestamp}` });
+      player.setActiveForLockScreen(true, {
+        title: metadata?.title || 'JudeBox Stream',
+        artist: metadata?.artist || 'Artiste Inconnu',
+      });
       // The status listener already set up will handle progress updates
     });
   }, [socket, player, role]);
@@ -352,6 +372,11 @@ export default function App() {
 
       // Load new source with the expo-audio player
       player.replace(audioStreamUri);
+      
+      player.setActiveForLockScreen(true, {
+        title: coverData?.title || filename.replace('.mp3', ''),
+        artist: coverData?.artist || 'Artiste Inconnu',
+      });
 
       if (autoPlayOnLoad) {
         player.play();
@@ -411,6 +436,7 @@ export default function App() {
     setRole(null);
     setRoomId('');
     player.pause();
+    player.clearLockScreenControls();
     setTrackMetadata(null);
   };
 

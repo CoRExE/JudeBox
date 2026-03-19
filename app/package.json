@@ -11,7 +11,13 @@
     "eas:dev:ios": "bunx eas build --profile development --platform ios",
     "eas:android": "bunx eas build --platform android",
     "eas:ios": "bunx eas build --platform ios",
-    "eas:update": "bunx eas update"
+    "eas:update": "bunx eas update",
+    "release": "standard-version"
+  },
+  "standard-version": {
+    "scripts": {
+      "postbump": "bun run scripts/sync-version.js && git add app.json"
+    }
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -33,6 +39,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.10",
+    "standard-version": "^9.5.0",
     "typescript": "~5.9.2"
   },
   "private": true
