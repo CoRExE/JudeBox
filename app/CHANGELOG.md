@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.1.1](https://github.com/CoRExE/JudeBox/compare/v1.1.0...v1.1.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* add expo-audio plugin to app.json ([fdae2ab](https://github.com/CoRExE/JudeBox/commit/fdae2ab01978365f6f21f956198cc8c9b77afc24))
+
 ## 1.1.0 (2026-03-19)
 
 
