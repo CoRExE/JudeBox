@@ -1,0 +1,39 @@
+name: EAS Release Build
+
+on:
+  push:
+    tags:
+      - 'v*' # Ce workflow s'active uniquement quand un tag vX.X.X est poussé vers GitHub
+
+jobs:
+  build:
+    name: Build EAS Production
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📦 Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: 🍔 Installer Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: 🏗 Configurer EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }} # Ce token doit être ajouté dans les secrets GitHub
+
+      - name: ⚙️ Installer les dépendances
+        working-directory: ./app
+        run: bun install
+
+      - name: 🚀 Compilation Android (APK ou AAB)
+        working-directory: ./app
+        # Utilise le profil par défaut (production)
+        run: eas build --platform android --non-interactive
+
+      # - name: 🍏 Compilation iOS
+      #   working-directory: ./app
+      #   run: eas build --platform ios --non-interactive

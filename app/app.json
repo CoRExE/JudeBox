@@ -2,7 +2,7 @@
   "expo": {
     "name": "JudeBox",
     "slug": "judebox",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
           "audio"
         ]
       },
-      "buildNumber": "2"
+      "buildNumber": "3"
     },
     "android": {
       "adaptiveIcon": {
@@ -39,7 +39,7 @@
         "android.permission.READ_MEDIA_VIDEO"
       ],
       "package": "com.ceestos.judebox",
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "favicon": "./assets/favicon.png"
