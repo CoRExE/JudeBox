@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, TextInput, Alert, Platform, ActivityIndicator, KeyboardAvoidingView, ScrollView, Image, Animated, Dimensions, Easing, Modal, FlatList } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
-import { Audio } from 'expo-av';
+import { useAudioPlayer } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import { io, Socket } from 'socket.io-client';
 import { Play, Pause, Upload, Headphones, LogOut, Radio, Music, RadioTower, ListMusic, Repeat, Repeat1, X, SkipBack, SkipForward, FolderHeart, Library } from 'lucide-react-native';
@@ -36,7 +36,8 @@ export default function App() {
   const [role, setRole] = useState<Role>(null);
   const [isConnected, setIsConnected] = useState(false);
 
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const player = useAudioPlayer(); // expo-audio hook
+  
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentFileURI, setCurrentFileURI] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -172,6 +173,39 @@ export default function App() {
     }
   }, [progress, isAutoPlay, role]);
 
+  // Status and Event Listener for AudioPlayer
+  useEffect(() => {
+    // Synchronize local state with player status
+    const updateListener = player.addListener('playbackStatusUpdate', (status: any) => {
+      // expo-audio currentTime and duration are in seconds!
+      const currentPos = status.currentTime || 0;
+      const totalDur = status.duration || 1; 
+      
+      if (status.isLoaded) {
+        setProgress(currentPos / totalDur);
+      }
+
+      if (isUpdatingFromSocket.current) return;
+
+      // Ensure play state is synchronized based on user interactions
+      if (status.playing !== currentIsPlayingRef.current) {
+        currentIsPlayingRef.current = status.playing;
+        setIsPlaying(status.playing);
+        if (role !== 'offline') {
+          socket?.emit('updateState', roomId, {
+            isPlaying: status.playing,
+            positionMillis: currentPos * 1000 // Send in ms for backwards compatibility
+          });
+        }
+      }
+    });
+
+    return () => {
+      updateListener.remove();
+    };
+  }, [player, roomId, role]);
+
+
   // Initialisation Socket
   useEffect(() => {
     const newSocket = io(SERVER_URL);
@@ -190,36 +224,33 @@ export default function App() {
     return () => { newSocket.disconnect(); };
   }, []);
 
-  useEffect(() => {
-    return sound ? () => { sound.unloadAsync(); } : undefined;
-  }, [sound]);
 
   // Écouteurs Server/Sync
   useEffect(() => {
     if (!socket) return;
 
     socket.on('syncState', async (state: { isPlaying: boolean, positionMillis: number, updatedAt: number }) => {
-      if (!sound || role === 'host') return;
+      if (role === 'host') return;
 
       isUpdatingFromSocket.current = true;
       const now = Date.now();
       const latency = now - state.updatedAt;
-      const targetPosition = state.positionMillis + (state.isPlaying ? latency : 0);
+      
+      // Calculate target position in SECONDS
+      const targetPosition = (state.positionMillis + (state.isPlaying ? latency : 0)) / 1000;
 
-      const status = await sound.getStatusAsync();
-
-      if (status.isLoaded) {
-        const drift = Math.abs(status.positionMillis - targetPosition);
-        if (drift > 2000) {
-          await sound.setPositionAsync(targetPosition);
+      if (player.isLoaded) {
+        const drift = Math.abs(player.currentTime - targetPosition);
+        if (drift > 2) { // 2 seconds leeway
+          await player.seekTo(targetPosition);
         }
 
-        if (state.isPlaying && !status.isPlaying) {
-          await sound.playAsync();
+        if (state.isPlaying && !player.playing) {
+          player.play();
           setIsPlaying(true);
           currentIsPlayingRef.current = true;
-        } else if (!state.isPlaying && status.isPlaying) {
-          await sound.pauseAsync();
+        } else if (!state.isPlaying && player.playing) {
+          player.pause();
           setIsPlaying(false);
           currentIsPlayingRef.current = false;
         }
@@ -230,22 +261,16 @@ export default function App() {
 
     socket.on('newTrack', async (streamPath: string, metadata?: { title?: string, artist?: string, coverBase64?: string }) => {
       if (role !== 'listener') return;
-      if (sound) await sound.unloadAsync();
 
       setTrackMetadata(metadata || null);
 
       const timestamp = Date.now()
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: `${SERVER_URL}${streamPath}?t=${timestamp}` },
-        { shouldPlay: false }
-      );
-
-      newSound.setOnPlaybackStatusUpdate((status: any) => {
-        if (status.isLoaded) setProgress(status.positionMillis / (status.durationMillis || 1));
-      });
-      setSound(newSound);
+      
+      // Load the new stream URL into the player
+      player.replace({ uri: `${SERVER_URL}${streamPath}?t=${timestamp}` });
+      // The status listener already set up will handle progress updates
     });
-  }, [socket, sound, role]);
+  }, [socket, player, role]);
 
   // Actions Room
   const createRoom = () => {
@@ -325,35 +350,11 @@ export default function App() {
         audioStreamUri = SERVER_URL + resData.streamUrl;
       }
 
-      if (sound) await sound.unloadAsync();
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: audioStreamUri },
-        { shouldPlay: false }
-      );
-
-      newSound.setOnPlaybackStatusUpdate(async (status: any) => {
-        if (!status.isLoaded) return;
-        setProgress(status.positionMillis / (status.durationMillis || 1));
-
-        if (isUpdatingFromSocket.current) return;
-
-        // Ensure play state is synchronized
-        if (status.isPlaying !== currentIsPlayingRef.current) {
-          currentIsPlayingRef.current = status.isPlaying;
-          setIsPlaying(status.isPlaying);
-          if (role !== 'offline') {
-            socket?.emit('updateState', roomId, {
-              isPlaying: status.isPlaying,
-              positionMillis: status.positionMillis
-            });
-          }
-        }
-      });
-
-      setSound(newSound);
+      // Load new source with the expo-audio player
+      player.replace(audioStreamUri);
 
       if (autoPlayOnLoad) {
-        await newSound.playAsync();
+        player.play();
         setIsPlaying(true);
         currentIsPlayingRef.current = true;
         
@@ -386,24 +387,22 @@ export default function App() {
 
 
 
-  const togglePlayHost = async () => {
-    if (!sound) return;
-    const status = await sound.getStatusAsync();
-    if (!status.isLoaded) return;
+  const togglePlayHost = () => {
+    if (!player.isLoaded) return;
 
-    if (status.isPlaying) {
-      await sound.pauseAsync();
+    if (player.playing) {
+      player.pause();
       setIsPlaying(false);
       currentIsPlayingRef.current = false;
       if (role !== 'offline') {
-        socket?.emit('updateState', roomId, { isPlaying: false, positionMillis: status.positionMillis });
+        socket?.emit('updateState', roomId, { isPlaying: false, positionMillis: player.currentTime * 1000 });
       }
     } else {
-      await sound.playAsync();
+      player.play();
       setIsPlaying(true);
       currentIsPlayingRef.current = true;
       if (role !== 'offline') {
-        socket?.emit('updateState', roomId, { isPlaying: true, positionMillis: status.positionMillis });
+        socket?.emit('updateState', roomId, { isPlaying: true, positionMillis: player.currentTime * 1000 });
       }
     }
   };
@@ -411,10 +410,7 @@ export default function App() {
   const leaveRoom = () => {
     setRole(null);
     setRoomId('');
-    if (sound) {
-      sound.unloadAsync();
-      setSound(null);
-    }
+    player.pause();
     setTrackMetadata(null);
   };
 
@@ -545,19 +541,19 @@ export default function App() {
                 </TouchableOpacity>
 
                 <View style={styles.playbackControls}>
-                  <TouchableOpacity style={styles.secondaryActionBtn} onPress={playPreviousTrack} disabled={!sound}>
-                    <SkipBack size={28} color={sound ? COLORS.text : COLORS.textMuted} fill={sound ? COLORS.text : COLORS.textMuted} />
+                  <TouchableOpacity style={styles.secondaryActionBtn} onPress={playPreviousTrack} disabled={!player.isLoaded}>
+                    <SkipBack size={28} color={player.isLoaded ? COLORS.text : COLORS.textMuted} fill={player.isLoaded ? COLORS.text : COLORS.textMuted} />
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.playBtn, !sound && styles.btnDisabled]}
+                    style={[styles.playBtn, !player.isLoaded && styles.btnDisabled]}
                     onPress={togglePlayHost}
-                    disabled={!sound}>
+                    disabled={!player.isLoaded}>
                     {isPlaying ? <Pause size={32} color="#fff" /> : <Play size={32} color="#fff" style={{ marginLeft: 4 }} />}
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.secondaryActionBtn} onPress={playNextTrack} disabled={!sound || !getNextTrackInfo()}>
-                    <SkipForward size={28} color={sound && getNextTrackInfo() ? COLORS.text : COLORS.textMuted} fill={sound && getNextTrackInfo() ? COLORS.text : COLORS.textMuted} />
+                  <TouchableOpacity style={styles.secondaryActionBtn} onPress={playNextTrack} disabled={!player.isLoaded || !getNextTrackInfo()}>
+                    <SkipForward size={28} color={player.isLoaded && getNextTrackInfo() ? COLORS.text : COLORS.textMuted} fill={player.isLoaded && getNextTrackInfo() ? COLORS.text : COLORS.textMuted} />
                   </TouchableOpacity>
                 </View>
 
@@ -629,7 +625,7 @@ export default function App() {
 
           {role === 'listener' && (
             <View style={styles.playerCard}>
-              <View style={[styles.vinylContainer, !sound && { opacity: 0.3 }]}>
+              <View style={[styles.vinylContainer, !player.isLoaded && { opacity: 0.3 }]}>
                 <Animated.View style={[styles.vinyl, isPlaying && styles.vinylSpinning, { transform: [{ rotate: spinInterpolate }] }]}>
                   {trackMetadata?.coverBase64 ? (
                     <Image
@@ -645,13 +641,13 @@ export default function App() {
               <Text style={styles.trackName}>
                 {trackMetadata?.title && trackMetadata?.artist
                   ? `${trackMetadata.title} - ${trackMetadata.artist}`
-                  : (trackMetadata?.title || (sound ? '🎧 En écoute partagée' : '⏳ En attente de musique...'))}
+                  : (trackMetadata?.title || (player.isLoaded ? '🎧 En écoute partagée' : '⏳ En attente de musique...'))}
               </Text>
               <Text style={[styles.syncStatus, { color: isPlaying ? COLORS.accent : COLORS.textMuted }]}>
-                {isPlaying ? "En direct avec l'hôte" : (sound ? "L'hôte a mis en pause" : "Silence dans le salon")}
+                {isPlaying ? "En direct avec l'hôte" : (player.isLoaded ? "L'hôte a mis en pause" : "Silence dans le salon")}
               </Text>
 
-              {sound && (
+              {player.isLoaded && (
                 <View style={styles.progressContainer}>
                   <View style={styles.progressBarBg}>
                     <View style={[styles.progressBarFill, { width: `${progress * 100}%` }]} />

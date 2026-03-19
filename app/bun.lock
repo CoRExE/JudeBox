@@ -8,7 +8,7 @@
         "@react-native-async-storage/async-storage": "2.2.0",
         "@react-native-picker/picker": "2.11.1",
         "expo": "~54.0.33",
-        "expo-av": "^16.0.8",
+        "expo-audio": "^55.0.9",
         "expo-dev-client": "~6.0.20",
         "expo-document-picker": "~14.0.8",
         "expo-file-system": "~19.0.21",
@@ -563,7 +563,7 @@
 
     "expo-asset": ["expo-asset@12.0.12", "", { "dependencies": { "@expo/image-utils": "^0.8.8", "expo-constants": "~18.0.12" }, "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-CsXFCQbx2fElSMn0lyTdRIyKlSXOal6ilLJd+yeZ6xaC7I9AICQgscY5nj0QcwgA+KYYCCEQEBndMsmj7drOWQ=="],
 
-    "expo-av": ["expo-av@16.0.8", "", { "peerDependencies": { "expo": "*", "react": "*", "react-native": "*", "react-native-web": "*" }, "optionalPeers": ["react-native-web"] }, "sha512-cmVPftGR/ca7XBgs7R6ky36lF3OC0/MM/lpgX/yXqfv0jASTsh7AYX9JxHCwFmF+Z6JEB1vne9FDx4GiLcGreQ=="],
+    "expo-audio": ["expo-audio@55.0.9", "", { "peerDependencies": { "expo": "*", "expo-asset": "*", "react": "*", "react-native": "*" } }, "sha512-3SsyjwrupXRBbOoDjD5rcqgGnQ5RiB8z4KF1eel88q4z8yue7NKik2o9e3QBMDKLX7xnbJo673ah14BKnF9OVA=="],
 
     "expo-constants": ["expo-constants@18.0.13", "", { "dependencies": { "@expo/config": "~12.0.13", "@expo/env": "~2.0.8" }, "peerDependencies": { "expo": "*", "react-native": "*" } }, "sha512-FnZn12E1dRYKDHlAdIyNFhBurKTS3F9CrfrBDJI5m3D7U17KBHMQ6JEfYlSj7LG7t+Ulr+IKaj58L1k5gBwTcQ=="],
 
