@@ -41,15 +41,9 @@ const COLORS = {
 
 const extractLocalMetadata = async (uri: string, filename: string) => {
   try {
-    const fileInfo = await FileSystem.getInfoAsync(uri);
-    if (!fileInfo.exists) throw new Error("Fichier introuvable");
-    
-    // Read only the first 600KB which contains the ID3 tag (Cover/Metadata)
-    const sizeToRead = Math.min(fileInfo.size || 600000, 600000);
+    // Read the entire file as Base64 to prevent 'Unexpected end of file' parser errors
     const base64Str = await FileSystem.readAsStringAsync(uri, { 
-      encoding: 'base64',
-      position: 0,
-      length: sizeToRead
+      encoding: 'base64'
     });
     
     const buffer = Buffer.from(base64Str, 'base64');
