@@ -3,6 +3,9 @@ import { StyleSheet, Text, View, TouchableOpacity, TextInput, Alert, Platform, A
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
+import * as mm from 'music-metadata-browser';
 import { io, Socket } from 'socket.io-client';
 import { Play, Pause, Upload, Headphones, LogOut, Radio, Music, RadioTower, ListMusic, Repeat, Repeat1, X, SkipBack, SkipForward, FolderHeart, Library } from 'lucide-react-native';
 import { LocalAudioList } from './src/components/LocalAudioList';
@@ -28,6 +31,38 @@ const COLORS = {
   success: '#10B981',    // Emerald 500
   danger: '#EF4444',     // Red 500
   dangerGhost: 'rgba(239, 68, 68, 0.15)'
+};
+
+const extractLocalMetadata = async (uri: string, filename: string) => {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(uri);
+    if (!fileInfo.exists) throw new Error("Fichier introuvable");
+    
+    // Read only the first 600KB which contains the ID3 tag (Cover/Metadata)
+    const sizeToRead = Math.min(fileInfo.size || 600000, 600000);
+    const base64Str = await FileSystem.readAsStringAsync(uri, { 
+      encoding: 'base64',
+      position: 0,
+      length: sizeToRead
+    });
+    
+    const buffer = Buffer.from(base64Str, 'base64');
+    const metadata = await mm.parseBuffer(buffer, 'audio/mpeg', { duration: false });
+    
+    let coverBase64 = undefined;
+    if (metadata.common.picture && metadata.common.picture.length > 0) {
+      coverBase64 = Buffer.from(metadata.common.picture[0].data).toString('base64');
+    }
+
+    return {
+      title: metadata.common.title || filename.replace('.mp3', ''),
+      artist: metadata.common.artist || 'Artiste Inconnu',
+      coverBase64
+    };
+  } catch (err) {
+    console.warn("Erreur extract ID3 local:", err);
+    return { title: filename.replace('.mp3', ''), artist: 'Artiste Inconnu' };
+  }
 };
 
 export default function App() {
@@ -343,10 +378,7 @@ export default function App() {
         // Mode Hors Ligne: on lit le fichier local directement
         audioStreamUri = uri;
           
-        // Note: For now, in offline mode without a local ID3 parser library, 
-        // we won't have the cover extraction unless added later. 
-        // We set basic info.
-        coverData = { title: filename.replace('.mp3', ''), artist: 'Artiste Inconnu' };
+        coverData = await extractLocalMetadata(uri, filename);
         setTrackMetadata(coverData);
       } else {
         // Mode Hôte Online: upload vers le serveur
