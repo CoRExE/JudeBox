@@ -279,7 +279,9 @@ io.on("connection", (socket) => {
         console.log(`Client ${socket.id} a rejoint la Room ${roomId}`);
 
         // Notifier l'hôte qu'un auditeur a rejoint (optionnel mais utile)
-        io.to(room.hostId!).emit("listenerJoined", socket.id);
+        if (room.hostId) {
+            io.to(room.hostId).emit("listenerJoined", socket.id);
+        }
 
         if (room.currentAudioFile) {
             // Dire à l'auditeur que de la musique est prête à être écoutée
@@ -308,6 +310,31 @@ io.on("connection", (socket) => {
 
             // Interaction de l'hôte => On relance l'inactivité à zéro (10min)
             checkAndResetTimeouts(roomId);
+        }
+    });
+
+    socket.on("leaveRoom", (roomId: string) => {
+        const room = rooms[roomId];
+        if (!room) return;
+        
+        socket.leave(roomId);
+        let changed = false;
+
+        if (room.hostId === socket.id) {
+            room.hostId = null;
+            changed = true;
+            console.log(`L'hôte a quitté volontairement la room ${roomId}.`);
+            io.to(roomId).emit("hostLeft");
+        } else {
+            const listenerIndex = room.listeners.indexOf(socket.id);
+            if (listenerIndex !== -1) {
+                room.listeners.splice(listenerIndex, 1);
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            checkAndResetTimeouts(room.id);
         }
     });
 

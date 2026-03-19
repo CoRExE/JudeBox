@@ -219,7 +219,7 @@ export default function App() {
     return () => {
       updateListener.remove();
     };
-  }, [player, roomId, role]);
+  }, [player, roomId, role, socket]);
 
 
   // Initialisation Socket
@@ -290,6 +290,11 @@ export default function App() {
       });
       // The status listener already set up will handle progress updates
     });
+
+    return () => {
+      socket.off('syncState');
+      socket.off('newTrack');
+    };
   }, [socket, player, role]);
 
   // Actions Room
@@ -433,6 +438,9 @@ export default function App() {
   };
 
   const leaveRoom = () => {
+    if (socket && roomId && role !== 'offline') {
+      socket.emit('leaveRoom', roomId);
+    }
     setRole(null);
     setRoomId('');
     player.pause();
