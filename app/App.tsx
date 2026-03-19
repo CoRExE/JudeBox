@@ -3,7 +3,7 @@ import { StyleSheet, Text, View, TouchableOpacity, TextInput, Alert, Platform, A
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 import * as mm from 'music-metadata-browser';
 import { io, Socket } from 'socket.io-client';
