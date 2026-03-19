@@ -6,6 +6,12 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 import * as mm from 'music-metadata-browser';
+
+// Polyfill global Buffer pour les librairies Node.js fonctionnant dans React Native
+if (typeof global.Buffer === 'undefined') {
+  global.Buffer = Buffer;
+}
+
 import { io, Socket } from 'socket.io-client';
 import { Play, Pause, Upload, Headphones, LogOut, Radio, Music, RadioTower, ListMusic, Repeat, Repeat1, X, SkipBack, SkipForward, FolderHeart, Library } from 'lucide-react-native';
 import { LocalAudioList } from './src/components/LocalAudioList';
