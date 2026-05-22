@@ -13,15 +13,17 @@ if (typeof global.Buffer === 'undefined') {
 }
 
 import { io, Socket } from 'socket.io-client';
-import { Play, Pause, Upload, Headphones, LogOut, Radio, Music, RadioTower, ListMusic, Repeat, Repeat1, X, SkipBack, SkipForward, FolderHeart, Library } from 'lucide-react-native';
+import { Play, Pause, Upload, Headphones, LogOut, Radio, Music, RadioTower, ListMusic, Repeat, Repeat1, X, SkipBack, SkipForward, FolderHeart, Library, Search } from 'lucide-react-native';
 import { LocalAudioList } from './src/components/LocalAudioList';
 import { usePlaylists, Playlist, PlaylistTrack } from './src/hooks/usePlaylists';
 import { PlaylistsView } from './src/components/PlaylistsView';
 import { Toast } from './src/components/Toast';
+import { FSoundSearch } from './src/components/FSoundSearch';
+import { resolveTrack } from './src/utils/fsound';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const SERVER_URL = 'http://192.168.1.100:3000';
+const SERVER_URL = 'http://192.168.1.12:3000';
 
 type Role = 'host' | 'listener' | 'offline' | null;
 
@@ -42,13 +44,13 @@ const COLORS = {
 const extractLocalMetadata = async (uri: string, filename: string) => {
   try {
     // Read the entire file as Base64 to prevent 'Unexpected end of file' parser errors
-    const base64Str = await FileSystem.readAsStringAsync(uri, { 
+    const base64Str = await FileSystem.readAsStringAsync(uri, {
       encoding: 'base64'
     });
-    
+
     const buffer = Buffer.from(base64Str, 'base64');
     const metadata = await mm.parseBuffer(buffer, 'audio/mpeg', { duration: false });
-    
+
     let coverBase64 = undefined;
     if (metadata.common.picture && metadata.common.picture.length > 0) {
       coverBase64 = Buffer.from(metadata.common.picture[0].data).toString('base64');
@@ -72,7 +74,7 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
 
   const player = useAudioPlayer(); // expo-audio hook
-  
+
   // Initialize background audio mode
   useEffect(() => {
     const setupAudio = async () => {
@@ -93,14 +95,14 @@ export default function App() {
   const [currentFileURI, setCurrentFileURI] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [trackMetadata, setTrackMetadata] = useState<{ title?: string, artist?: string, coverBase64?: string } | null>(null);
+  const [trackMetadata, setTrackMetadata] = useState<{ title?: string, artist?: string, coverBase64?: string, coverUrl?: string } | null>(null);
   const [showLocalLibrary, setShowLocalLibrary] = useState(false);
   const [isAutoPlay, setIsAutoPlay] = useState(false);
   const [allLocalTracks, setAllLocalTracks] = useState<{ uri: string, filename: string }[]>([]);
 
   // Playlist State
   const { playlists, createPlaylist, addTrackToPlaylist, removeTrackFromPlaylist, deletePlaylist } = usePlaylists();
-  const [activeTab, setActiveTab] = useState<'library' | 'playlists'>('library');
+  const [activeTab, setActiveTab] = useState<'library' | 'playlists' | 'fsound'>('library');
   const [currentPlaybackContext, setCurrentPlaybackContext] = useState<{ type: 'library' } | { type: 'playlist', id: string }>({ type: 'library' });
   const [isPlaylistModalVisible, setPlaylistModalVisible] = useState(false);
   const [trackToAdd, setTrackToAdd] = useState<PlaylistTrack | null>(null);
@@ -230,8 +232,8 @@ export default function App() {
     const updateListener = player.addListener('playbackStatusUpdate', (status: any) => {
       // expo-audio currentTime and duration are in seconds!
       const currentPos = status.currentTime || 0;
-      const totalDur = status.duration || 1; 
-      
+      const totalDur = status.duration || 1;
+
       if (status.isLoaded) {
         setProgress(currentPos / totalDur);
       }
@@ -286,7 +288,7 @@ export default function App() {
       isUpdatingFromSocket.current = true;
       const now = Date.now();
       const latency = now - state.updatedAt;
-      
+
       // Calculate target position in SECONDS
       const targetPosition = (state.positionMillis + (state.isPlaying ? latency : 0)) / 1000;
 
@@ -310,15 +312,16 @@ export default function App() {
       setTimeout(() => { isUpdatingFromSocket.current = false; }, 500);
     });
 
-    socket.on('newTrack', async (streamPath: string, metadata?: { title?: string, artist?: string, coverBase64?: string }) => {
+    socket.on('newTrack', async (streamPath: string, metadata?: { title?: string, artist?: string, coverBase64?: string, coverUrl?: string }) => {
       if (role !== 'listener') return;
 
       setTrackMetadata(metadata || null);
 
-      const timestamp = Date.now()
-      
+      const isExternal = streamPath.startsWith('http://') || streamPath.startsWith('https://');
+      const finalUri = isExternal ? streamPath : `${SERVER_URL}${streamPath}?t=${Date.now()}`;
+
       // Load the new stream URL into the player
-      player.replace({ uri: `${SERVER_URL}${streamPath}?t=${timestamp}` });
+      player.replace({ uri: finalUri });
       player.setActiveForLockScreen(true, {
         title: metadata?.title || 'JudeBox Stream',
         artist: metadata?.artist || 'Artiste Inconnu',
@@ -372,44 +375,71 @@ export default function App() {
       setShowLocalLibrary(false);
 
       let audioStreamUri = '';
-      let coverData: { title?: string, artist?: string, coverBase64?: string } | null = null;
+      let coverData: { title?: string, artist?: string, coverBase64?: string, coverUrl?: string } | null = null;
 
-      if (role === 'offline') {
-        // Mode Hors Ligne: on lit le fichier local directement
-        audioStreamUri = uri;
-          
-        coverData = await extractLocalMetadata(uri, filename);
-        setTrackMetadata(coverData);
-      } else {
-        // Mode Hôte Online: upload vers le serveur
-        const formData = new FormData();
-        formData.append('audio', {
-          uri: uri,
-          name: filename,
-          type: mimeType,
-        } as any);
+      const isFSound = uri.startsWith('fsound://');
 
-        const uploadRes = await fetch(`${SERVER_URL}/room/${roomId}/upload`, {
-          method: 'POST',
-          body: formData,
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
+      if (isFSound) {
+        const match = uri.match(/^fsound:\/\/([^?]+)/);
+        const trackId = match ? match[1] : '';
+        const artistMatch = uri.match(/[?&]artist=([^&]+)/);
+        const titleMatch = uri.match(/[?&]title=([^&]+)/);
+        const coverUrlMatch = uri.match(/[?&]coverUrl=([^&]+)/);
+        const artist = artistMatch ? decodeURIComponent(artistMatch[1]) : '';
+        const title = titleMatch ? decodeURIComponent(titleMatch[1]) : '';
+        const coverUrl = coverUrlMatch ? decodeURIComponent(coverUrlMatch[1]) : '';
 
-        if (!uploadRes.ok) {
+        try {
+          audioStreamUri = await resolveTrack(trackId, artist, title);
+          coverData = { title, artist, coverUrl: coverUrl || undefined };
+          setTrackMetadata(coverData);
+        } catch (err) {
+          console.warn("[FSound Resolve Error]:", err);
           setIsUploading(false);
-          Alert.alert('Erreur', "Échec de l'upload du fichier.");
+          Alert.alert('Erreur', 'Impossible de récupérer le flux de lecture pour ce morceau.');
           return;
         }
 
-        const resData = await uploadRes.json();
-        coverData = resData.metadata || null;
-        setTrackMetadata(coverData);
-        audioStreamUri = SERVER_URL + resData.streamUrl;
+        if (role !== 'offline') {
+          socket?.emit("playTrackUrl", roomId, audioStreamUri, coverData);
+        }
+      } else {
+        if (role === 'offline') {
+          // Mode Hors Ligne: on lit le fichier local directement
+          audioStreamUri = uri;
+          coverData = await extractLocalMetadata(uri, filename);
+          setTrackMetadata(coverData);
+        } else {
+          // Mode Hôte Online: upload vers le serveur
+          const formData = new FormData();
+          formData.append('audio', {
+            uri: uri,
+            name: filename,
+            type: mimeType,
+          } as any);
+
+          const uploadRes = await fetch(`${SERVER_URL}/room/${roomId}/upload`, {
+            method: 'POST',
+            body: formData,
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+
+          if (!uploadRes.ok) {
+            setIsUploading(false);
+            Alert.alert('Erreur', "Échec de l'upload du fichier.");
+            return;
+          }
+
+          const resData = await uploadRes.json();
+          coverData = resData.metadata || null;
+          setTrackMetadata(coverData);
+          audioStreamUri = SERVER_URL + resData.streamUrl;
+        }
       }
 
       // Load new source with the expo-audio player
       player.replace(audioStreamUri);
-      
+
       player.setActiveForLockScreen(true, {
         title: coverData?.title || filename.replace('.mp3', ''),
         artist: coverData?.artist || 'Artiste Inconnu',
@@ -419,9 +449,9 @@ export default function App() {
         player.play();
         setIsPlaying(true);
         currentIsPlayingRef.current = true;
-        
+
         if (role !== 'offline') {
-            socket?.emit('updateState', roomId, { isPlaying: true, positionMillis: 0 });
+          socket?.emit('updateState', roomId, { isPlaying: true, positionMillis: 0 });
         }
       }
 
@@ -528,7 +558,7 @@ export default function App() {
                 <Radio size={20} color={COLORS.text} />
                 <Text style={styles.btnSecondaryText}>Créer un salon (Hôte)</Text>
               </TouchableOpacity>
-              
+
               <View style={styles.divider}>
                 <View style={styles.dividerLine} />
                 <Text style={styles.dividerText}>HORS LIGNE</Text>
@@ -570,6 +600,11 @@ export default function App() {
                   {trackMetadata?.coverBase64 ? (
                     <Image
                       source={{ uri: `data:image/jpeg;base64,${trackMetadata.coverBase64}` }}
+                      style={styles.coverImage}
+                    />
+                  ) : trackMetadata?.coverUrl ? (
+                    <Image
+                      source={{ uri: trackMetadata.coverUrl }}
                       style={styles.coverImage}
                     />
                   ) : (
@@ -634,25 +669,33 @@ export default function App() {
           {(role === 'host' || role === 'offline') && (
             <Animated.View style={[styles.sidePanel, { transform: [{ translateX: slideAnim }] }]}>
               <View style={styles.sidePanelHeader}>
-                <View style={styles.tabContainer}>
-                  <TouchableOpacity
-                    style={[styles.tabBtn, activeTab === 'library' && styles.activeTabBtn]}
-                    onPress={() => setActiveTab('library')}
-                  >
-                    <Library size={18} color={activeTab === 'library' ? COLORS.text : COLORS.textMuted} />
-                    <Text style={[styles.tabText, activeTab === 'library' && styles.activeTabText]}>Bibliothèque</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.tabBtn, activeTab === 'playlists' && styles.activeTabBtn]}
-                    onPress={() => setActiveTab('playlists')}
-                  >
-                    <FolderHeart size={18} color={activeTab === 'playlists' ? COLORS.text : COLORS.textMuted} />
-                    <Text style={[styles.tabText, activeTab === 'playlists' && styles.activeTabText]}>Playlists</Text>
-                  </TouchableOpacity>
-                </View>
-
+                <Text style={styles.sidePanelTitle}>Médiathèque</Text>
                 <TouchableOpacity onPress={toggleLibraryPanel} style={styles.closePanelBtn}>
                   <X size={24} color={COLORS.text} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.tabContainer}>
+                <TouchableOpacity
+                  style={[styles.tabBtn, activeTab === 'library' && styles.activeTabBtn]}
+                  onPress={() => setActiveTab('library')}
+                >
+                  <Library size={18} color={activeTab === 'library' ? COLORS.text : COLORS.textMuted} />
+                  <Text style={[styles.tabText, activeTab === 'library' && styles.activeTabText]}>Local</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.tabBtn, activeTab === 'playlists' && styles.activeTabBtn]}
+                  onPress={() => setActiveTab('playlists')}
+                >
+                  <FolderHeart size={18} color={activeTab === 'playlists' ? COLORS.text : COLORS.textMuted} />
+                  <Text style={[styles.tabText, activeTab === 'playlists' && styles.activeTabText]}>Playlists</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.tabBtn, activeTab === 'fsound' && styles.activeTabBtn]}
+                  onPress={() => setActiveTab('fsound')}
+                >
+                  <Search size={18} color={activeTab === 'fsound' ? COLORS.text : COLORS.textMuted} />
+                  <Text style={[styles.tabText, activeTab === 'fsound' && styles.activeTabText]}>En ligne</Text>
                 </TouchableOpacity>
               </View>
 
@@ -665,7 +708,7 @@ export default function App() {
                     setPlaylistModalVisible(true);
                   }}
                 />
-              ) : (
+              ) : activeTab === 'playlists' ? (
                 <PlaylistsView
                   playlists={playlists}
                   onCreatePlaylist={createPlaylist}
@@ -685,6 +728,14 @@ export default function App() {
                     }
                   }}
                 />
+              ) : (
+                <FSoundSearch
+                  onSelectTrack={(uri, filename) => handleAudioSelection(uri, filename, 'audio/mpeg', true)}
+                  onAddToPlaylist={(uri, filename) => {
+                    setTrackToAdd({ uri, filename });
+                    setPlaylistModalVisible(true);
+                  }}
+                />
               )}
             </Animated.View>
           )}
@@ -696,6 +747,11 @@ export default function App() {
                   {trackMetadata?.coverBase64 ? (
                     <Image
                       source={{ uri: `data:image/jpeg;base64,${trackMetadata.coverBase64}` }}
+                      style={styles.coverImage}
+                    />
+                  ) : trackMetadata?.coverUrl ? (
+                    <Image
+                      source={{ uri: trackMetadata.coverUrl }}
                       style={styles.coverImage}
                     />
                   ) : (
@@ -1087,15 +1143,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  sidePanelTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: '700',
   },
   tabContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
-    gap: 16,
+    justifyContent: 'space-around',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
   tabBtn: {
     flexDirection: 'row',

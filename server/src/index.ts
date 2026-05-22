@@ -313,6 +313,32 @@ io.on("connection", (socket) => {
         }
     });
 
+    socket.on("playTrackUrl", (roomId: string, url: string, metadata: any) => {
+        const room = rooms[roomId];
+        if (room && room.hostId === socket.id) {
+            // Nettoyage ancien fichier physique si présent
+            if (room.currentAudioFile && fs.existsSync(room.currentAudioFile)) {
+                try {
+                    fs.unlinkSync(room.currentAudioFile);
+                } catch (e) { console.error("Erreur suppression de fichier :", e); }
+                room.currentAudioFile = null;
+            }
+
+            room.metadata = metadata;
+            room.currentTrackState = {
+                isPlaying: true,
+                positionMillis: 0,
+                updatedAt: Date.now()
+            };
+
+            // Notifier les auditeurs avec l'URL externe directe et l'état
+            io.to(roomId).emit("newTrack", url, room.metadata);
+            socket.to(roomId).emit("syncState", room.currentTrackState);
+
+            checkAndResetTimeouts(roomId);
+        }
+    });
+
     socket.on("leaveRoom", (roomId: string) => {
         const room = rooms[roomId];
         if (!room) return;
