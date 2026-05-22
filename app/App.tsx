@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, TextInput, Alert, Platform, ActivityIndicator, KeyboardAvoidingView, ScrollView, Image, Animated, Dimensions, Easing, Modal, FlatList } from 'react-native';
+import { Text, View, TouchableOpacity, Alert, Animated, Dimensions, Modal, FlatList } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
@@ -13,33 +13,24 @@ if (typeof global.Buffer === 'undefined') {
 }
 
 import { io, Socket } from 'socket.io-client';
-import { Play, Pause, Upload, Headphones, LogOut, Radio, Music, RadioTower, ListMusic, Repeat, Repeat1, X, SkipBack, SkipForward, FolderHeart, Library, Search } from 'lucide-react-native';
+import { LogOut, X, FolderHeart, Library, Search } from 'lucide-react-native';
 import { LocalAudioList } from './src/components/LocalAudioList';
 import { usePlaylists, Playlist, PlaylistTrack } from './src/hooks/usePlaylists';
 import { PlaylistsView } from './src/components/PlaylistsView';
 import { Toast } from './src/components/Toast';
 import { FSoundSearch } from './src/components/FSoundSearch';
 import { resolveTrack } from './src/utils/fsound';
+import { COLORS } from './src/constants/colors';
+import { styles } from './src/styles/AppStyles';
+import { LobbyView } from './src/components/LobbyView';
+import { HostPlayerView } from './src/components/HostPlayerView';
+import { ListenerPlayerView } from './src/components/ListenerPlayerView';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const SERVER_URL = 'http://192.168.1.12:3000';
 
 type Role = 'host' | 'listener' | 'offline' | null;
-
-// Thème des couleurs
-const COLORS = {
-  bg: '#0F172A',         // Slate 900
-  card: '#1E293B',       // Slate 800
-  accent: '#8B5CF6',     // Violet 500
-  accentHover: '#7C3AED',// Violet 600
-  accentGhost: 'rgba(139, 92, 246, 0.15)',
-  text: '#F8FAFC',       // Slate 50
-  textMuted: '#94A3B8',  // Slate 400
-  success: '#10B981',    // Emerald 500
-  danger: '#EF4444',     // Red 500
-  dangerGhost: 'rgba(239, 68, 68, 0.15)'
-};
 
 const extractLocalMetadata = async (uri: string, filename: string) => {
   try {
@@ -120,40 +111,6 @@ export default function App() {
   const hasTriggeredNextTrackRef = useRef(false);
 
   const slideAnim = useRef(new Animated.Value(SCREEN_WIDTH)).current; // Initially off-screen
-  const spinAnim = useRef(new Animated.Value(0)).current;
-
-  const isSpinning = useRef(false);
-
-  // Vinyl Spin Animation
-  useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    if (isPlaying) {
-      if (!isSpinning.current) {
-        spinAnim.setValue(0);
-        Animated.loop(
-          Animated.timing(spinAnim, {
-            toValue: 1,
-            duration: 12000,
-            easing: Easing.linear,
-            useNativeDriver: true,
-          })
-        ).start();
-        isSpinning.current = true;
-      }
-    } else {
-      // Debounce stop to prevent jump on track change
-      timeout = setTimeout(() => {
-        spinAnim.stopAnimation();
-        isSpinning.current = false;
-      }, 500);
-    }
-    return () => clearTimeout(timeout);
-  }, [isPlaying]);
-
-  const spinInterpolate = spinAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg']
-  });
 
   const toggleLibraryPanel = () => {
     const isOpening = !showLocalLibrary;
@@ -516,61 +473,14 @@ export default function App() {
     return (
       <SafeAreaProvider>
         <SafeAreaView style={styles.container}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardView}>
-            <View style={styles.logoContainer}>
-              <View style={styles.iconCircle}>
-                <RadioTower size={48} color={COLORS.accent} />
-              </View>
-              <Text style={styles.title}>JudeBox</Text>
-              <Text style={styles.subtitle}>Écoute partagée en temps réel.</Text>
-            </View>
-
-            <View style={[styles.statusBadge, { backgroundColor: isConnected ? COLORS.accentGhost : COLORS.dangerGhost }]}>
-              <View style={[styles.statusDot, { backgroundColor: isConnected ? COLORS.accent : COLORS.danger }]} />
-              <Text style={[styles.statusText, { color: isConnected ? COLORS.accent : COLORS.danger }]}>
-                {isConnected ? 'Serveur Connecté' : 'Serveur Déconnecté'}
-              </Text>
-            </View>
-
-            <View style={styles.formCard}>
-              <Text style={styles.label}>Code du salon</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex: SOIRÉE-123"
-                placeholderTextColor={COLORS.textMuted}
-                value={roomId}
-                onChangeText={setRoomId}
-                autoCapitalize="characters"
-              />
-
-              <TouchableOpacity style={[styles.btnPrimary, !roomId && styles.btnDisabled]} onPress={joinRoom} disabled={!roomId || !isConnected}>
-                <Headphones size={20} color="#fff" />
-                <Text style={styles.btnPrimaryText}>Rejoindre (Auditeur)</Text>
-              </TouchableOpacity>
-
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>OU</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              <TouchableOpacity style={[styles.btnSecondary, !roomId && styles.btnDisabled]} onPress={createRoom} disabled={!roomId || !isConnected}>
-                <Radio size={20} color={COLORS.text} />
-                <Text style={styles.btnSecondaryText}>Créer un salon (Hôte)</Text>
-              </TouchableOpacity>
-
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>HORS LIGNE</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              <TouchableOpacity style={styles.btnSecondary} onPress={startOfflineMode}>
-                <Music size={20} color={COLORS.text} />
-                <Text style={styles.btnSecondaryText}>Écouter ma musique (Solo)</Text>
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
+          <LobbyView
+            roomId={roomId}
+            setRoomId={setRoomId}
+            isConnected={isConnected}
+            joinRoom={joinRoom}
+            createRoom={createRoom}
+            startOfflineMode={startOfflineMode}
+          />
         </SafeAreaView>
       </SafeAreaProvider>
     );
@@ -594,75 +504,23 @@ export default function App() {
 
         <View style={styles.roomContent}>
           {(role === 'host' || role === 'offline') && (
-            <View style={styles.playerCard}>
-              <View style={styles.vinylContainer}>
-                <Animated.View style={[styles.vinyl, isPlaying && styles.vinylSpinning, { transform: [{ rotate: spinInterpolate }] }]}>
-                  {trackMetadata?.coverBase64 ? (
-                    <Image
-                      source={{ uri: `data:image/jpeg;base64,${trackMetadata.coverBase64}` }}
-                      style={styles.coverImage}
-                    />
-                  ) : trackMetadata?.coverUrl ? (
-                    <Image
-                      source={{ uri: trackMetadata.coverUrl }}
-                      style={styles.coverImage}
-                    />
-                  ) : (
-                    <Music size={40} color={COLORS.bg} />
-                  )}
-                </Animated.View>
-              </View>
-
-              <Text style={styles.trackName} numberOfLines={1}>
-                {trackMetadata?.title && trackMetadata?.artist
-                  ? `${trackMetadata.title} - ${trackMetadata.artist}`
-                  : (trackMetadata?.title || currentFileURI || "Aucun fichier sélectionné")}
-              </Text>
-
-              {isAutoPlay && getNextTrackInfo() && (
-                <View style={styles.nextTrackInfo}>
-                  <Text style={styles.nextTrackLabel}>À suivre :</Text>
-                  <Text style={styles.nextTrackText} numberOfLines={1}>
-                    {getNextTrackInfo()?.filename}
-                  </Text>
-                </View>
-              )}
-
-              <View style={styles.progressContainer}>
-                <View style={styles.progressBarBg}>
-                  <View style={[styles.progressBarFill, { width: `${progress * 100}%` }]} />
-                </View>
-              </View>
-
-              <View style={styles.hostControls}>
-                <TouchableOpacity style={styles.actionBtn} onPress={toggleLibraryPanel} disabled={isUploading}>
-                  {(currentPlaybackContext.type === 'playlist') ?
-                    <FolderHeart size={24} color={COLORS.accent} /> :
-                    <ListMusic size={24} color={COLORS.text} />}
-                </TouchableOpacity>
-
-                <View style={styles.playbackControls}>
-                  <TouchableOpacity style={styles.secondaryActionBtn} onPress={playPreviousTrack} disabled={!player.isLoaded}>
-                    <SkipBack size={28} color={player.isLoaded ? COLORS.text : COLORS.textMuted} fill={player.isLoaded ? COLORS.text : COLORS.textMuted} />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.playBtn, !player.isLoaded && styles.btnDisabled]}
-                    onPress={togglePlayHost}
-                    disabled={!player.isLoaded}>
-                    {isPlaying ? <Pause size={32} color="#fff" /> : <Play size={32} color="#fff" style={{ marginLeft: 4 }} />}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.secondaryActionBtn} onPress={playNextTrack} disabled={!player.isLoaded || !getNextTrackInfo()}>
-                    <SkipForward size={28} color={player.isLoaded && getNextTrackInfo() ? COLORS.text : COLORS.textMuted} fill={player.isLoaded && getNextTrackInfo() ? COLORS.text : COLORS.textMuted} />
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity style={[styles.actionBtn, isAutoPlay && styles.activeActionBtn]} onPress={() => setIsAutoPlay(!isAutoPlay)}>
-                  {isAutoPlay ? <Repeat size={24} color={COLORS.bg} /> : <Repeat1 size={24} color={COLORS.textMuted} />}
-                </TouchableOpacity>
-              </View>
-            </View>
+            <HostPlayerView
+              isPlaying={isPlaying}
+              trackMetadata={trackMetadata}
+              currentFileURI={currentFileURI}
+              progress={progress}
+              isAutoPlay={isAutoPlay}
+              isUploading={isUploading}
+              playerLoaded={player.isLoaded}
+              hasNextTrack={getNextTrackInfo() !== null}
+              nextTrackFilename={getNextTrackInfo()?.filename}
+              currentPlaybackContextType={currentPlaybackContext.type}
+              onToggleLibrary={toggleLibraryPanel}
+              onPlayPrevious={playPreviousTrack}
+              onPlayNext={playNextTrack}
+              onTogglePlay={togglePlayHost}
+              onToggleAutoPlay={() => setIsAutoPlay(!isAutoPlay)}
+            />
           )}
 
           {/* Animated Library Side Panel over content */}
@@ -741,42 +599,12 @@ export default function App() {
           )}
 
           {role === 'listener' && (
-            <View style={styles.playerCard}>
-              <View style={[styles.vinylContainer, !player.isLoaded && { opacity: 0.3 }]}>
-                <Animated.View style={[styles.vinyl, isPlaying && styles.vinylSpinning, { transform: [{ rotate: spinInterpolate }] }]}>
-                  {trackMetadata?.coverBase64 ? (
-                    <Image
-                      source={{ uri: `data:image/jpeg;base64,${trackMetadata.coverBase64}` }}
-                      style={styles.coverImage}
-                    />
-                  ) : trackMetadata?.coverUrl ? (
-                    <Image
-                      source={{ uri: trackMetadata.coverUrl }}
-                      style={styles.coverImage}
-                    />
-                  ) : (
-                    isPlaying ? <Radio size={40} color={COLORS.bg} /> : <Headphones size={40} color={COLORS.bg} />
-                  )}
-                </Animated.View>
-              </View>
-
-              <Text style={styles.trackName}>
-                {trackMetadata?.title && trackMetadata?.artist
-                  ? `${trackMetadata.title} - ${trackMetadata.artist}`
-                  : (trackMetadata?.title || (player.isLoaded ? '🎧 En écoute partagée' : '⏳ En attente de musique...'))}
-              </Text>
-              <Text style={[styles.syncStatus, { color: isPlaying ? COLORS.accent : COLORS.textMuted }]}>
-                {isPlaying ? "En direct avec l'hôte" : (player.isLoaded ? "L'hôte a mis en pause" : "Silence dans le salon")}
-              </Text>
-
-              {player.isLoaded && (
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressBarBg}>
-                    <View style={[styles.progressBarFill, { width: `${progress * 100}%` }]} />
-                  </View>
-                </View>
-              )}
-            </View>
+            <ListenerPlayerView
+              isPlaying={isPlaying}
+              trackMetadata={trackMetadata}
+              progress={progress}
+              playerLoaded={player.isLoaded}
+            />
           )}
 
           {/* Modal Add to Playlist */}
@@ -826,415 +654,3 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-  },
-  keyboardView: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  iconCircle: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: COLORS.card,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  title: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: COLORS.text,
-    letterSpacing: -1,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: COLORS.textMuted,
-    marginTop: 4,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginBottom: 30,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  formCard: {
-    backgroundColor: COLORS.card,
-    padding: 24,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  label: {
-    color: COLORS.textMuted,
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  input: {
-    backgroundColor: COLORS.bg,
-    color: COLORS.text,
-    padding: 16,
-    borderRadius: 12,
-    fontSize: 16,
-    fontWeight: '600',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    marginBottom: 24,
-  },
-  btnPrimary: {
-    backgroundColor: COLORS.accent,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 16,
-    gap: 10,
-  },
-  btnPrimaryText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  btnDisabled: {
-    opacity: 0.5,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  dividerText: {
-    color: COLORS.textMuted,
-    paddingHorizontal: 16,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  btnSecondary: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 16,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  btnSecondaryText: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-
-  // -- ROOM STYLES --
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  headerTitle: {
-    color: COLORS.text,
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  headerRole: {
-    color: COLORS.accent,
-    fontSize: 14,
-    fontWeight: '500',
-    marginTop: 2,
-  },
-  leaveBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.dangerGhost,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roomContent: {
-    padding: 24,
-    flex: 1,
-    justifyContent: 'center',
-  },
-  playerCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 32,
-    padding: 32,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  vinylContainer: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 32,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  vinyl: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: COLORS.text,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: COLORS.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-  },
-  vinylSpinning: {
-    // Dans React Native brut sans library externe, on peut simuler ou utiliser Reanimated plus tard.
-    // L'ajout de l'animation de bordure corail active
-    shadowOpacity: 0.8,
-    shadowRadius: 30,
-    backgroundColor: COLORS.accent,
-  },
-  trackName: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  syncStatus: {
-    fontSize: 14,
-    marginBottom: 24,
-  },
-  progressContainer: {
-    width: '100%',
-    marginBottom: 32,
-  },
-  progressBarBg: {
-    width: '100%',
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: COLORS.accent,
-    borderRadius: 3,
-  },
-  hostControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  playbackControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  actionBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  activeActionBtn: {
-    backgroundColor: COLORS.text,
-  },
-  secondaryActionBtn: {
-    padding: 8,
-  },
-  playBtn: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: COLORS.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.6,
-    shadowRadius: 15,
-    elevation: 8,
-  },
-  coverImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 80, // Moitié de width/height (160) de vinyl
-  },
-  nextTrackInfo: {
-    width: '100%',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 16,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.accent,
-  },
-  nextTrackLabel: {
-    color: COLORS.accent,
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 2,
-    textTransform: 'uppercase',
-  },
-  nextTrackText: {
-    color: COLORS.textMuted,
-    fontSize: 14,
-  },
-  sidePanel: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    right: 0,
-    width: SCREEN_WIDTH * 0.85,
-    backgroundColor: COLORS.card,
-    borderLeftWidth: 1,
-    borderLeftColor: 'rgba(255,255,255,0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: -5, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 20,
-    paddingTop: 0, // Handled by header
-  },
-  sidePanelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  sidePanelTitle: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  tabBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    gap: 8,
-  },
-  activeTabBtn: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  tabText: {
-    color: COLORS.textMuted,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  activeTabText: {
-    color: COLORS.text,
-  },
-  closePanelBtn: {
-    padding: 8,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  modalContent: {
-    width: '100%',
-    backgroundColor: COLORS.card,
-    borderRadius: 24,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    maxHeight: '70%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  modalPlaylistBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-    gap: 12,
-  },
-  modalPlaylistText: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  modalEmpty: {
-    padding: 24,
-    alignItems: 'center',
-  },
-  modalEmptyText: {
-    color: COLORS.textMuted,
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  modalEmptySubText: {
-    color: 'rgba(255,255,255,0.3)',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-});
